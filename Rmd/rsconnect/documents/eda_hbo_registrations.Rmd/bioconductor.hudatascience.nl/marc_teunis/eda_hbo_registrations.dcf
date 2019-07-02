@@ -1,0 +1,12 @@
+name: eda_hbo_registrations
+title: eda_hbo_registrations
+username: marc_teunis
+account: marc_teunis
+server: bioconductor.hudatascience.nl
+hostUrl: http://bioconductor.hudatascience.nl:84/__api__
+appId: 8
+bundleId: 22
+url: http://bioconductor.hudatascience.nl:84/content/8/
+when: 1561143804.42347
+asMultiple: FALSE
+asStatic: TRUE

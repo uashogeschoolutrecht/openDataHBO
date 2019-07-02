@@ -1,0 +1,337 @@
+---
+title: "Registered students for HBO 2014 - 2018"
+author: "Marc A.T. Teunis"
+date: "`r Sys.Date()`"
+params:
+  croho: "techniek"
+  institute: "Hogeschool Utrecht"
+  education_track: "B Biologie en Medisch Laboratoriumonderzoek" 
+  education_type: "bachelor"
+output:
+  BiocStyle::html_document:
+    toc: true
+    toc_depth: 2
+---
+
+# Packages
+```{r}
+library(tidyverse)
+library(here)
+library(naniar)
+library(ggridges)
+```
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, fig.width = 10, fig.height = 7)
+theme(legend.position = "none")
+```
+
+# Data
+
+## Data - GET
+```{r}
+path_to_datafile <- here("data-raw", "D010", "01-ingeschrevenen-hbo-2018.csv")
+data <- read_csv2(path_to_datafile)
+```
+
+## Data - INSPECT
+```{r}
+head(data)
+head(data[, c("2014 Man", "2018 Vrouw")])
+```
+
+## Data - TIDY
+```{r}
+data_tidy <- data %>%
+  gather(`2014 Man`:`2018 Vrouw`,
+         key = "year_gender", value = "counts") %>%
+  separate(year_gender, into = c("year", "gender"),
+           remove = FALSE)
+data_tidy[, c("year", "gender", "counts")]
+```
+
+## Data - FIX NAMES
+```{r}
+names(data_tidy) <- names(data_tidy) %>%
+  str_replace_all(pattern = " ", replacement = "_") %>%
+  tolower()
+names(data_tidy)
+```
+
+## Data - MISSING VALUES
+For this analysis we remove all NAs
+```{r}
+sum(is.na(data_tidy))
+vis_miss(data_tidy)
+naniar::gg_miss_var(data_tidy)
+naniar::gg_miss_upset(data_tidy)
+data_tidy <- na.omit(data_tidy)
+
+```
+
+# Exploratory Data Analysis
+
+## Distributions
+
+- Many zero or low counts
+- The median is `r median(data_tidy$counts, na.rm = TRUE)`
+```{r}
+median <- median(data_tidy$counts, na.rm = TRUE) %>% log10() 
+hist(data_tidy$counts)
+data_tidy %>%
+  mutate(counts = counts + 0.001) %>% ## add a pseudocount of 0.001 for log10 transform
+  ggplot(aes(x = log10(counts))) +
+  geom_freqpoly() +
+  geom_vline(xintercept = median, colour = "darkred", linetype = "dashed", size = 1)
+```
+
+## Ditrubutions per chroho
+```{r}
+data_tidy %>%
+   mutate(counts = counts + 0.001) %>% ## add a pseudocount of 0.001 for log10 transform
+  na.omit() %>%
+  ggplot(
+    aes(x = log10(counts),
+    y = croho_onderdeel,
+    fill = croho_onderdeel)) +
+      geom_density_ridges() +
+      theme(legend.position = "none")+
+      labs(title = "Distributions per CROHO") +
+  facet_wrap(~ year)
+```
+
+## All crohos over time
+```{r}
+data_tidy %>%
+#  dplyr::filter(counts < 10) %>%
+  group_by(year, croho_onderdeel) %>%
+  summarise(sum_counts = sum(counts)) %>%
+  ggplot(aes(x = year, y = sum_counts)) +
+  geom_point(aes(colour = croho_onderdeel,
+                 shape = croho_onderdeel), size = 2) +
+  geom_line(aes(colour = croho_onderdeel, 
+                group = croho_onderdeel), size = 1) +
+  scale_shape_manual(values = c(1:8)) +
+  theme_bw()
+```
+
+## General pattern over time for all institutes, cummulative
+Here we examine the registered students on the global institutional level. All enrollments are summed per institute and year to get a general overview.
+```{r}
+library(toolboxr)
+data_tidy %>%
+  group_by(instellingsnaam_actueel) %>%
+  summarise(sum_counts = sum(counts)) %>%
+  ggplot(aes(x = sum_counts, 
+             y = reorder(
+               as_factor(instellingsnaam_actueel), sum_counts
+               ))) +
+  geom_point() +
+  theme_bw() +
+#  facet_wrap(~year, nrow = 1) +
+  ylab("Institutes") +
+  xlab("Sum counts") +
+  rotate_axis_labels(axis = "x", angle = 90) +
+  scale_x_continuous(labels = scales::scientific)
+```
+
+## General pattern over time for all institutes, over the years
+Here we examine the registered students on the global institutional level. All enrollments are summed per institute and year to get a general overview.
+```{r}
+library(toolboxr)
+data_tidy %>%
+  group_by(year, instellingsnaam_actueel) %>%
+  summarise(sum_counts = sum(counts)) %>%
+  ggplot(aes(x = sum_counts, 
+             y = reorder(
+               as_factor(instellingsnaam_actueel), sum_counts
+               ))) +
+  geom_point() +
+  theme_bw() +
+  facet_wrap(~year, nrow = 1) +
+  ylab("Institutes") +
+  xlab("Sum counts") +
+  rotate_axis_labels(axis = "x", angle = 90) +
+  scale_x_continuous(labels = scales::scientific)
+```
+
+# Parameterized report
+To zoom in on one institute, the remainder of this report is paramterized for one institute, croho or education track
+
+## Generic pattern for education tracks within one croho, only the larger educational tracks (> 3000 total enrollments, in each year)
+```{r}
+library(directlabels)
+library(ggrepel)
+
+data_tidy %>%
+  dplyr::filter(croho_onderdeel == params$croho) %>%
+  group_by(opleidingsnaam_actueel, year) %>%
+ 
+  summarise(sum_counts = sum(counts)) %>%
+  filter(sum_counts > 3000) %>%
+  mutate(label = if_else(year == max(year), 
+                         as.character(
+                           opleidingsnaam_actueel), 
+                         NA_character_)) %>%
+  
+  
+    ggplot(aes(x = year, y = sum_counts)) +
+  geom_point(aes(colour = opleidingsnaam_actueel), size = 1.5) +
+  geom_line(aes(colour = opleidingsnaam_actueel, 
+                group = opleidingsnaam_actueel), size = 1) +
+  theme_bw() +
+  theme(legend.position = "none") +
+  ggtitle(paste("All enrollments for the croho \n",
+                params$croho, ", for all education tracks within this croho", sep = "")) +
+  
+  scale_x_discrete(expand=c(0, 2)) +
+  geom_label_repel(aes(label = label),
+                  nudge_x = 3,
+                  nudge_y = 2,
+                  na.rm = TRUE)
+
+
+
+data_tidy %>%
+  dplyr::filter(croho_onderdeel == params$croho) %>%
+  group_by(opleidingsnaam_actueel, year) %>%
+ 
+  summarise(sum_counts = sum(counts)) -> highest
+
+high_track <- highest %>%
+  filter(sum_counts == max(highest$sum_counts))
+
+```
+
+## Educational with maximum enrollment in croho `r params$croho` track `r high_track$opleidingsnaam_actueel` at a closer look
+```{r}
+data_tidy %>%
+  dplyr::filter(croho_onderdeel == params$croho) %>%
+  group_by(opleidingsnaam_actueel, year) %>%
+  summarise(sum_counts = sum(counts)) %>%
+  
+  mutate(label = if_else(year == max(year), 
+                         as.character(
+                           opleidingsnaam_actueel), 
+                         NA_character_)) %>%
+  
+  dplyr::filter(opleidingsnaam_actueel %in% high_track$opleidingsnaam_actueel) %>%
+  ggplot(aes(x = year, y = sum_counts)) +
+  geom_line(aes(colour = opleidingsnaam_actueel, 
+                group = opleidingsnaam_actueel), size = 3) +
+  
+  geom_point(size = 3, colour = "blue") + 
+  theme_bw() +
+  theme(legend.position = "none") +
+  
+  scale_x_discrete(expand=c(0, 1.3)) +
+  ylim(c(10000, 20000)) +
+  geom_label_repel(aes(label = label),
+                  nudge_x = 3,
+                  nudge_y = 2,
+                  na.rm = TRUE) 
+
+
+
+```
+
+
+## Generic pattern for `r params$education_track`
+```{r}
+data_tidy %>%
+  dplyr::filter(opleidingsnaam_actueel == params$education_track) %>%
+  group_by(opleidingsnaam_actueel, year) %>%
+  summarise(sum_counts = sum(counts)) %>%
+  ggplot(aes(x = year, y = sum_counts)) +
+  geom_point(aes(colour = opleidingsnaam_actueel), size = 2, colour = "blue") +
+  geom_line(aes(colour = opleidingsnaam_actueel, 
+                group = opleidingsnaam_actueel), size = 1,
+            colour = "blue") +
+  theme_bw() +
+  theme(legend.position = "none") +
+  ggtitle(paste("Number of enrollments for \n", 
+                params$education_track)) +
+  ylim(4000, 6000)
+```
+
+### Generic pattern for `r params$education_track` over institutes providing this track.
+```{r}
+data_tidy %>%
+  dplyr::filter(opleidingsnaam_actueel == params$education_track) %>%
+  group_by(opleidingsnaam_actueel, year, instellingsnaam_actueel) %>%
+  summarise(sum_counts = sum(counts)) %>%
+  ggplot(aes(x = year, y = sum_counts)) +
+  geom_point(aes(colour = opleidingsnaam_actueel), 
+             colour = "darkblue") +
+  geom_line(aes(colour = opleidingsnaam_actueel, 
+                group = opleidingsnaam_actueel), 
+            colour = "darkblue") +
+  theme_bw() +
+  theme(legend.position = "none") +
+  ggtitle(paste("Number of total enrollments for \n", 
+                params$education_track, "per institute")) +
+  facet_wrap(~ instellingsnaam_actueel)
+```
+
+# Gender differences
+
+## For croho `r params$croho`
+```{r}
+data_tidy %>%
+  dplyr::filter(croho_onderdeel == params$croho) %>%
+#  mutate(counts_log2 = log2(counts + 0.0001)) %>%
+#  dplyr::filter(counts_log2 > 2.5) %>%
+  ggplot(aes(x = year,
+             y = log10(counts))) +
+  geom_point(aes(colour = gender),
+             shape = 1, position = "jitter") +
+  geom_smooth(method = "lm") +
+  
+  ggtitle(paste("Man vrouw verdeling bij croho \n",
+                params$croho)) +
+  theme_bw()
+```
+
+## For educational track `r params$education_track`
+Male female distributions
+```{r}
+data_tidy %>%
+  dplyr::filter(
+    opleidingsnaam_actueel == params$education_track) %>%
+  mutate(counts_log2 = log2(counts + 0.0001)) %>%
+  dplyr::filter(counts_log2 > 2.5) %>%
+  ggplot(aes(x = year,
+             y = counts_log2)) +
+  geom_point(aes(colour = gender),
+             shape = 1, position = "jitter") +
+  geom_smooth(aes(group = gender, colour = gender), method = "loess", se = FALSE) +
+  ggtitle(paste("Man vrouw verdeling bij \n",
+                params$education_track)) +
+  theme_bw()
+```
+
+## Overall differences in registered females vs males for `r params$educational_track`
+```{r}
+data_tidy %>%
+  dplyr::filter(
+    opleidingsnaam_actueel == params$education_track) %>%
+#  mutate(counts_log2 = log2(counts + 0.0001)) %>%
+  group_by(gender, year) %>%
+  summarise(sum_counts = sum(counts)) %>%
+#  dplyr::filter(counts_log2 > 2.5) %>%
+  ggplot(aes(x = year,
+             y = sum_counts)) +
+  geom_point(aes(colour = gender)) +
+  geom_smooth(aes(group = gender, colour = gender)) +
+#  geom_smooth(aes(group = gender, colour = gender), method = "loess", se = FALSE) +
+  scale_color_manual(values = c("blue", "red")) +
+  theme_bw()
+```
+
+## Education types, comparisons
+Here we compare Bachelor vs Deeltijd and Master educations, we look at differences between males and females per croho, for the institute: `r params$institute
+
+
+
